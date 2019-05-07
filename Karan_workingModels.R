@@ -341,6 +341,7 @@ stuTest <- stuTest %>%
   left_join(itemIndex, by = c("unknown", "action", "adventure", "animation", "childrens", "comedy", "crime", "documentary", "drama", "fantasy", "film_noir", "horror", "musical", "mystery", "romance", "sci_fi", "thriller", "war", "western", "item_mean_rating", "item_imdb_length", "item_imdb_mature_rating"))%>%
   left_join(userIndex, by = c("age", "gender", "occupation", "user_mean_rating"))
 
+
 ## Create Test / Train Split
 set.seed(42)
 trSize <- floor(0.75*nrow(stuTrain))

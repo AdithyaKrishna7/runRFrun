@@ -11,6 +11,7 @@ library(reshape2)
 library(recosystem)
 library(parallel)
 library(doParallel)
+library(xgboost)
 
 ## Allow multiple cores for processing - Run Code for all Models
 
@@ -217,6 +218,164 @@ results_df <- results_df %>% mutate(rating = case_when((rating < 1 | is.na(ratin
 
 #write.csv(results_df, file = "runRFrun_Submission_gbm-20190506.csv", row.names = FALSE)
 
+######################## MODEL 3a GBM - submitted to Kaggle on 06/05/2019 10.40pm RMSE = 0.96958 , test Train RMSE = 0.9682333########################
+# == Import preprocessed data - Run Code for all Models==================
+stuTrain <- readRDS('AT2_train_STUDENT.rds')
+stuTest <- readRDS('AT2_test_STUDENT.rds')
+scrape <- readRDS('scrape.rds')
 
 
+#
+#
+
+tempDf <- stuTrain[, c("user_id", "occupation", "gender", "age", "item_id", "item_imdb_mature_rating", "rating", "item_imdb_length", "unknown", "action", "adventure", "animation", "childrens", "comedy", "crime", "documentary","drama", "fantasy", "film_noir", "horror",  "musical",  "mystery", "romance",  "sci_fi",  "thriller", "war", "western")]
+
+#genre.occupation.length.mean.rating <- tempDf %>%
+# group_by(unknown, action, adventure, animation, childrens, comedy, crime, documentary, drama, fantasy, film_noir, horror,  musical,  mystery, romance,  sci_fi,  thriller, war, western, occupation, item_imdb_length) %>%
+#summarise(mean.genre.occ.length.rating = mean(rating))
+
+userIndex <- tempDf %>%
+  group_by(age, gender, occupation)%>%
+  summarise(userIndexMeanRating = mean(rating))
+
+itemIndex <- tempDf %>%
+  group_by(unknown, action, adventure, animation, childrens, comedy, crime, documentary, drama, fantasy, film_noir, horror,  musical,  mystery, romance,  sci_fi,  thriller, war, western, item_imdb_length, item_imdb_mature_rating) %>%
+  summarise(itemIndexMeanRating = mean(rating))
+
+stuTrain <- stuTrain %>%
+  left_join(itemIndex, by = c("unknown", "action", "adventure", "animation", "childrens", "comedy", "crime", "documentary", "drama", "fantasy", "film_noir", "horror", "musical", "mystery", "romance", "sci_fi", "thriller", "war", "western", "item_imdb_length", "item_imdb_mature_rating"))%>%
+  left_join(userIndex, by = c("age", "gender", "occupation"))
+
+stuTest <- stuTest %>%
+  left_join(itemIndex, by = c("unknown", "action", "adventure", "animation", "childrens", "comedy", "crime", "documentary", "drama", "fantasy", "film_noir", "horror", "musical", "mystery", "romance", "sci_fi", "thriller", "war", "western", "item_imdb_length", "item_imdb_mature_rating"))%>%
+  left_join(userIndex, by = c("age", "gender", "occupation"))
+
+## Create Test / Train Split
+set.seed(42)
+trSize <- floor(0.8*nrow(stuTrain))
+trIndex <- sample(seq_len(nrow(stuTrain)), size = trSize)
+
+trSet <- stuTrain[trIndex,]
+tstSet <- stuTrain[-trIndex,]
+
+
+trainControls <- trainControl(
+  method = "repeatedcv",
+  number = 10,
+  repeats = 5,
+  allowParallel = TRUE)
+
+gbmFit1 <- train(rating ~ itemIndexMeanRating + userIndexMeanRating, data = trSet, 
+                 method = "gbm", 
+                 trControl = trainControls,
+                 verbose = FALSE)
+gbmFit1
+
+tstSet$prediction <- predict(gbmFit1, tstSet)
+stuTest$rating <- predict(gbmFit1, stuTest)
+ModelMetrics::rmse(tstSet$rating, tstSet$prediction)
+
+
+results_df <- stuTest[,c(1,6,51)]
+results_df$user_item <- paste(results_df$user_id,results_df$item_id,sep = "_")
+results_df <- results_df[,c(-1,-2)]
+results_df <- results_df %>% mutate(rating = case_when((rating < 1 | is.na(rating)) ~ 1, rating > 5 ~ 5, TRUE ~ rating) ) 
+
+#write.csv(results_df, file = "runRFrun_Submission_gbm_2-20190506.csv", row.names = FALSE)
+
+
+#==========================================================================#
+
+######################## MODEL 5 nuralNet -  ########################
+
+nn.grid <- expand.grid(.decay = c(0.5), .size = c(3))
+nn.Control <- trainControl(method = 'cv', number = 5, allowParallel = TRUE)
+
+nn.train <- train(rating ~ 
+                    age+gender+occupation+
+                    unknown+action+adventure+animation+
+                    childrens+comedy+crime+documentary+
+                    drama+fantasy+film_noir+horror+
+                    musical+ mystery+romance+ sci_fi+ 
+                    thriller+war+western,
+                    data = trSet, method = "nnet",
+                    maxit = 1000, tuneGrid = nn.grid, trace = F, linout = 1) 
+nn.train
+
+tstSet$predict <- predict(nn.train, newdata = tstSet)
+ModelMetrics::rmse(tstSet$rating, tstSet$predict)
+
+######################## MODEL 6 GBM with user mean rating - submitted to Kaggle on 07/05/2019 10.19pm RMSE = 0.94430 , test Train RMSE = 0.9358683 ########################
+# == Import preprocessed data - Run Code for all Models==================
+stuTrain <- readRDS('AT2_train_STUDENT.rds')
+stuTest <- readRDS('AT2_test_STUDENT.rds')
+scrape <- readRDS('scrape.rds')
+
+#======================== create user mean rating (train) and add to treain and test data set ========================#
+
+userMeanRating_train <- stuTrain %>%
+  group_by(user_id)%>%
+  summarise(user_mean_rating = mean(rating))
+
+stuTrain <- stuTrain %>% 
+  left_join(userMeanRating_train, by = 'user_id')
+
+stuTest <- stuTest %>% 
+  left_join(userMeanRating_train, by = 'user_id')
+
+tempDf <- stuTrain[, c("user_id", "occupation", "gender", "age", "item_id", "user_mean_rating", "item_mean_rating","item_imdb_mature_rating", "rating", "item_imdb_length", "unknown", "action", "adventure", "animation", "childrens", "comedy", "crime", "documentary","drama", "fantasy", "film_noir", "horror",  "musical",  "mystery", "romance",  "sci_fi",  "thriller", "war", "western")]
+
+userIndex <- tempDf %>%
+  group_by(age, gender, occupation, user_mean_rating)%>%
+  summarise(userIndexMeanRating = mean(rating))
+
+itemIndex <- tempDf %>%
+  group_by(unknown, action, adventure, animation, childrens, comedy, crime, documentary, drama, fantasy, film_noir, horror,  musical,  mystery, romance,  sci_fi,  thriller, war, western, item_mean_rating, item_imdb_length, item_imdb_mature_rating) %>%
+  summarise(itemIndexMeanRating = mean(rating))
+
+stuTrain <- stuTrain %>%
+  left_join(itemIndex, by = c("unknown", "action", "adventure", "animation", "childrens", "comedy", "crime", "documentary", "drama", "fantasy", "film_noir", "horror", "musical", "mystery", "romance", "sci_fi", "thriller", "war", "western", "item_mean_rating", "item_imdb_length", "item_imdb_mature_rating"))%>%
+  left_join(userIndex, by = c("age", "gender", "occupation", "user_mean_rating"))
+
+stuTest <- stuTest %>%
+  left_join(itemIndex, by = c("unknown", "action", "adventure", "animation", "childrens", "comedy", "crime", "documentary", "drama", "fantasy", "film_noir", "horror", "musical", "mystery", "romance", "sci_fi", "thriller", "war", "western", "item_mean_rating", "item_imdb_length", "item_imdb_mature_rating"))%>%
+  left_join(userIndex, by = c("age", "gender", "occupation", "user_mean_rating"))
+
+## Create Test / Train Split
+set.seed(42)
+trSize <- floor(0.75*nrow(stuTrain))
+trIndex <- sample(seq_len(nrow(stuTrain)), size = trSize)
+
+trSet <- stuTrain[trIndex,]
+tstSet <- stuTrain[-trIndex,]
+
+
+trainControls <- trainControl(
+  method = "repeatedcv",
+  number = 10,
+  repeats = 10,
+  allowParallel = TRUE)
+
+
+
+newGBM <- train(rating ~ itemIndexMeanRating + userIndexMeanRating, data = trSet, 
+                 method = "gbm", 
+                 trControl = trainControls,
+                 bag.fraction=0.40,
+                 #n.trees = 200,
+                #tuneGrid = tune_grid,
+                 verbose = FALSE)
+newGBM
+
+tstSet$prediction <- predict(newGBM, tstSet)
+stuTest$rating <- predict(newGBM, stuTest)
+ModelMetrics::rmse(tstSet$rating, tstSet$prediction)
+
+
+results_df <- stuTest[,c(1,6,52)]
+results_df$user_item <- paste(results_df$user_id,results_df$item_id,sep = "_")
+results_df <- results_df[,c(-1,-2)]
+results_df <- results_df %>% mutate(rating = case_when((rating < 1 | is.na(rating)) ~ 1, rating > 5 ~ 5, TRUE ~ rating) ) 
+
+#write.csv(results_df, file = "runRFrun_Submission_gbm_3-20190507.csv", row.names = FALSE)
 

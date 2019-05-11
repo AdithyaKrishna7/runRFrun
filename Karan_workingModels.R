@@ -546,7 +546,6 @@ itemIndex <- stuTrain %>%
   group_by(item_mean_rating, item_imdb_length, item_imdb_mature_rating) %>%
   summarise(itemIndexMeanRating = mean(rating))
 
-
 # Join values into stuTrain and stuTest
 
 stuTrain <- stuTrain %>%

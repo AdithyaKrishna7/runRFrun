@@ -12,6 +12,7 @@ library(recosystem)
 library(parallel)
 library(doParallel)
 library(xgboost)
+library(gbm)
 
 ## Allow multiple cores for processing - Run Code for all Models
 
@@ -698,7 +699,7 @@ newGBM
 
 
 
-tstSet$prediction <- predict(newGBM, tstSet, n.tree = 1000)
+tstSet$prediction <- predict(newGBM, tstSet, n.tree = 10000)
 ModelMetrics::rmse(tstSet$rating, tstSet$prediction)
 
 
@@ -712,3 +713,112 @@ results_df <- results_df %>% mutate(rating = case_when((rating < 1 | is.na(ratin
 
 # write.csv(results_df, file = "runRFrun_Submission_gbm_12-20190511.csv", row.names = FALSE)
 
+####################### MODEL 15 GBM ntrees=10K - submitted to Kaggle on 13/05/2019 8.45am RMSE =  0.93172, test Train RMSE = 0.9069937 ########################
+
+stuTrain <- readRDS('AT2_train_STUDENT.rds')
+stuTest <- readRDS('AT2_test_STUDENT.rds')
+scrape <- readRDS('scrape.rds')
+
+#======================== create user mean rating (train) and add to treain and test data set ========================#
+stuTrain$user_id <- as.factor(stuTrain$user_id)
+stuTest$user_id <- as.factor(stuTest$user_id)
+
+stuTrain$hrStamp <- as.factor(hour(ymd_hms(stuTrain$timestamp)))
+stuTest$hrStamp <- as.factor(hour(ymd_hms(stuTest$timestamp)))
+stuTrain$relMonth <- as.factor(month(ymd_hms(as.POSIXct.Date(stuTrain$release_date))))
+stuTest$relMonth <- as.factor(month(ymd_hms(as.POSIXct.Date(stuTest$release_date))))
+
+
+stuTrain$relMonth <- fct_explicit_na(stuTrain$relMonth)
+stuTest$relMonth <- fct_explicit_na(stuTest$relMonth)
+
+stuTrain <- stuTrain %>% 
+  mutate(item_length_band = case_when(item_imdb_length < 50 ~ "Less than 50",
+                                      item_imdb_length < 100 ~ "50 to 100",
+                                      item_imdb_length < 150 ~ "100 to 150",
+                                      item_imdb_length < 200 ~ "150 to 200",
+                                      item_imdb_length > 200 ~ "More than 200"))
+
+stuTrain$item_length_band <- as.factor(stuTrain$item_length_band)
+
+stuTest <- stuTest %>% 
+  mutate(item_length_band = case_when(item_imdb_length < 50 ~ "Less than 50",
+                                      item_imdb_length < 100 ~ "50 to 100",
+                                      item_imdb_length < 150 ~ "100 to 150",
+                                      item_imdb_length < 200 ~ "150 to 200",
+                                      item_imdb_length > 200 ~ "More than 200"))
+stuTest$item_length_band <- as.factor(stuTest$item_length_band)
+
+userMeanRating_train <- stuTrain %>%
+  group_by(user_id)%>%
+  summarise(user_mean_rating = mean(rating))
+
+userGenreRating <- stuTrain %>%
+  group_by(age_band, gender, action, adventure, animation, childrens, comedy, crime, drama, film_noir, horror,  musical,  mystery, romance,  sci_fi, thriller, war)%>%
+  summarise(user_genre_mean_rating = mean(rating))
+
+userIndex <- stuTrain %>%
+  group_by(age, gender,occupation,hrStamp) %>%
+  summarise(userIndexMeanRating = mean(rating))
+
+itemIndex <- stuTrain %>%
+  group_by(item_mean_rating, item_imdb_length, item_imdb_mature_rating) %>%
+  summarise(itemIndexMeanRating = mean(rating))
+
+# Join values into stuTrain and stuTest
+
+stuTrain <- stuTrain %>%
+  left_join(userMeanRating_train, by = 'user_id') %>%
+  left_join(userGenreRating, by = c("age_band", "gender", "action", "adventure", "animation", "childrens", "comedy", "crime", "drama", "film_noir", "horror",  "musical",  "mystery", "romance",  "sci_fi",  "thriller", "war"))%>%
+  left_join(itemIndex, by = c("item_mean_rating", "item_imdb_length", "item_imdb_mature_rating"))%>%
+  left_join(userIndex, by = c("age", "gender","occupation", "hrStamp"))
+
+stuTest <- stuTest %>%
+  left_join(userMeanRating_train, by = 'user_id') %>%
+  left_join(userGenreRating, by = c("age_band", "gender", "action", "adventure", "animation", "childrens", "comedy", "crime", "drama", "film_noir", "horror",  "musical",  "mystery", "romance",  "sci_fi",  "thriller", "war"))%>%
+  left_join(itemIndex, by = c("item_mean_rating", "item_imdb_length", "item_imdb_mature_rating"))%>%
+  left_join(userIndex, by = c("age", "gender","occupation", "hrStamp"))
+
+summary(stuTrain)
+summary(stuTest)
+
+# stuTest$user_genre_mean_rating[is.na(stuTest$user_genre_mean_rating)] <- stuTest$item_mean_rating[is.na(stuTest$user_genre_mean_rating)]
+
+
+## Create Test / Train Split
+set.seed(42)
+trSize <- floor(0.8*nrow(stuTrain))
+trIndex <- sample(seq_len(nrow(stuTrain)), size = trSize)
+
+trSet <- stuTrain[trIndex,]
+tstSet <- stuTrain[-trIndex,]
+
+# ================== GBM MODEL ================
+
+newGBM <- gbm(rating ~ user_mean_rating + user_genre_mean_rating + itemIndexMeanRating + 
+                userIndexMeanRating,
+              data = trSet,
+              distribution = "gaussian",
+              interaction.depth = 10,
+              n.trees = 10000,
+              shrinkage = 0.01,
+              bag.fraction = 0.45,
+              #cv.folds = 10,
+              n.cores = 3)
+newGBM
+
+
+
+tstSet$prediction <- predict(newGBM, tstSet, n.tree = 10000)
+ModelMetrics::rmse(tstSet$rating, tstSet$prediction)
+
+
+stuTest$rating <- predict(newGBM, stuTest, n.tree = 10000)
+# ======================== Create submission file ========================
+results_df <- stuTest[,c(1,6,56)]
+results_df$user_item <- paste(results_df$user_id,results_df$item_id,sep = "_")
+results_df <- results_df[,c(-1,-2)]
+summary(results_df)
+results_df <- results_df %>% mutate(rating = case_when((rating < 1 | is.na(rating)) ~ 1, rating > 5 ~ 5, TRUE ~ rating) ) 
+
+# write.csv(results_df, file = "runRFrun_Submission_gbm_15-20190513.csv", row.names = FALSE)

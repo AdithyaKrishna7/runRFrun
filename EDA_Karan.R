@@ -81,5 +81,16 @@ genreList <- df1 %>%
   summarise(genre_count = n()) %>% ## 256 unique Genre combinations
   top_n(100, genre_count)
 
+stuTrain <- stuTrain %>%
+  left_join(df1, by = 'item_id')
+stuTest <- stuTest %>%
+  left_join(df1, by = 'item_id')
+
+stuTrain$gender <- as.factor(stuTrain$genre)
+
 #Top 100 genre combinations account for 92% of the items 
+
+# Other notes:
+# 1. IMDB variable are missing a small portion of values in the Train set. If we use them, best to deal with missing values by banding values into groups;
+# 2. 
 

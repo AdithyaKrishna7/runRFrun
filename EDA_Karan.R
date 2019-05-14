@@ -66,4 +66,20 @@ df <- stuTrain %>%
   summarise(genre_count = n())
 
 df1 <- melt(df, "item_id", variable.name = "genre")
+
 df1<-df1[df1$value==TRUE,c("item_id","genre")]
+df1 <- df1 %>%
+  group_by(item_id) %>%
+  summarise(genre = paste(genre, collapse=' '))
+
+
+df$genre <- as.factor(names(df[2:20])[apply(df[2:20],1,match,x=1)])
+
+
+genreList <- df1 %>%
+  group_by(genre) %>%
+  summarise(genre_count = n()) %>% ## 256 unique Genre combinations
+  top_n(100, genre_count)
+
+#Top 100 genre combinations account for 92% of the items 
+

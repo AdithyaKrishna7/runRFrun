@@ -1,6 +1,6 @@
 #rm(list = ls())
-# == Libraries ================================================================
-# Load packages
+#== Libraries ================================================================
+#Load packages
 library(tidyverse)
 library(lubridate)
 library(forcats)
@@ -15,9 +15,9 @@ library(doParallel)
 library(xgboost)
 library(gbm)
 
-# == Import preprocessed data =================================================
+#== Import preprocessed data =================================================
 
-# Webscraping dataa
+#Webscraping dataa
 stuTrain <- readRDS('AT2_train_STUDENT.rds')
 stuTest <- readRDS('AT2_test_STUDENT.rds')
 scrape <- readRDS('scrape.rds')
@@ -40,7 +40,7 @@ stuTest$user_id <- as.factor(stuTest$user_id)
 stuTrain$item_id <- as.factor(stuTrain$item_id)
 stuTest$item_id <- as.factor(stuTest$item_id)
 
-# Converting ordered factors to unordered
+#Converting ordered factors to unordered
 stuTrain$item_imdb_mature_rating <- factor(stuTrain$item_imdb_mature_rating, ordered = F)
 stuTrain$age_band <- factor(stuTrain$age_band, ordered = F)
 
@@ -50,11 +50,11 @@ stuTest$age_band <- factor(stuTrain$age_band, ordered = F)
 
 
 
-# == EDA ================================================================
-# Questions
-# How many unique users
-# How many unique movies
-# How many uniquer genre combinations?
+#== EDA ================================================================
+#Questions
+#How many unique users
+#How many unique movies
+#How many unique genre combinations?
 
 length(unique(stuTrain$user_id)) #943 users
 length(unique(stuTrain$item_id)) #1682 items
@@ -74,8 +74,8 @@ itemCounts <- stuTrain %>%
 sum(usrCounts$user_count) #49365 (61.64%)
 sum(itemCounts$item_count) #62611 (77.76%)
 
-## Imbalance in data set as top 25% of users account for > 50% of ratings and
-## Top 500 items account for 77% of the ratings in the train set.
+##Imbalance in data set as top 25% of users account for > 50% of ratings and
+##Top 500 items account for 77% of the ratings in the train set.
 
 df <- stuTrain %>%
   group_by(item_id, unknown, action, adventure, animation, childrens, comedy, crime, documentary, drama, fantasy, film_noir, horror,  musical,  mystery, romance,  sci_fi,  thriller, war, western) %>%
@@ -109,9 +109,9 @@ stuTrain$gender <- as.factor(stuTrain$genre)
 rm(usrCounts, itemCounts, df, df1, genreList)
 
 
-# Converting logical values to numeric
+#Converting logical values to numeric
 
-# For the train dataset
+#For the train dataset
 
 logVars <- unlist(lapply(stuTrain, is.logical))  
 baseLog <- data.frame(stuTrain[ , logVars])
@@ -126,7 +126,7 @@ rm(baseLog, baseNonLog)
 
 str(stuTrain)
 
-# For the test dataset
+#For the test dataset
 
 logVars <- unlist(lapply(stuTest, is.logical))  
 baseLog <- data.frame(stuTest[ , logVars])
@@ -141,7 +141,7 @@ rm(baseLog, baseNonLog)
 
 str(stuTest)
 
-# -- User related ----------------------------------------------------------------
+#-- User related ----------------------------------------------------------------
 #Create a separate User related dataframe
 
 user <- stuTrain %>% group_by(user_id, age, age_band, gender, zip_code, occupation) %>% summarise(count = n(), user_mean = mean(rating))
@@ -187,7 +187,7 @@ user <- user %>%
 rm(occ, zip)
 
 
-# -- Movie related ----------------------------------------------------------------
+#-- Movie related ----------------------------------------------------------------
 #Create a movie related dataset
 
 nrow(stuTrain %>% distinct(item_id)) #1682
@@ -225,4 +225,59 @@ summary(movieCounts$count) #Median 22; most movies are watched by few users only
 
 rm(movieCounts, movieIssues, test)
 
+
+#== Plots ===================================================================
+
+#Understanding various distributions
+
+ggplot(movie, aes(x = item_mean_rating, y = item_imdb_rating_of_ten)) + geom_point() #Linear relationship as expected
+
+ggplot(stuTrain, aes(x = item_mean_rating, y = item_imdb_length)) + geom_point() #No obvious pattern
+
+ggplot(user, aes(x = age, y = user_mean, color = gender)) + geom_point() #No obvious pattern
+
+
+ggplot(user, aes(x = age_band, y = user_mean, fill = age_band)) + 
+  geom_boxplot(notch = F) + 
+  facet_wrap(~occu_class, scales = "free") + 
+  scale_fill_brewer(palette = "Set4") +
+  theme_bw() +
+  xlab("Age band of user") +
+  ylab("Mean rating of user") +
+  labs(fill = "Age band of user") + 
+  ggtitle("Mean user rating across occupation and age bands") +
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "none") 
+
+
+#Viewing behaviour of users based on timestamp
+
+stuTrain$view_hour <- hour(as.character(stuTrain$timestamp))
+
+stuTrain <- stuTrain %>% 
+  mutate(view_cat = case_when(view_hour < 6 ~ "Late night (12AM - 6AM)",
+                              view_hour < 11 ~ "Morning (6AM - 11AM)",
+                              view_hour < 16 ~ "Afternoon (11AM - 4PM)",
+                              view_hour < 20 ~ "Evening (4PM - 8PM)",
+                              view_hour < 24 ~ "Night (8PM - 12AM)"))
+
+stuTrain$view_cat <- factor(stuTrain$view_cat, ordered = T, levels = c("Morning (6AM - 11AM)", "Afternoon (11AM - 4PM)", "Evening (4PM - 8PM)", "Night (8PM - 12AM)", "Late night (12AM - 6AM)"))
+
+view_cat <- stuTrain %>% group_by(view_cat) %>% summarise(freq = n())
+
+#Bar chart
+
+ggplot(view_cat, aes(x = view_cat, y = freq, fill = freq)) +
+  geom_bar(width = 0.5, stat = "identity") +
+  theme_bw() +
+  scale_fill_gradient(high = "#132B43", low = "#56B1F7") +
+  xlab("Time of the day") +
+  ylab("Counts of viewings") +
+  ggtitle("Movie viewings over time of day") +
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "none") 
+
+#== End of EDA ================================================
+
+#==============================================================
+
+#== Modelling =================================================
 

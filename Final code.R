@@ -426,7 +426,7 @@ newGBM <- gbm(rating ~ user_mean_rating + item_mean_rating + user_genre_mean_rat
               data = trSet,
               distribution = "gaussian",
               interaction.depth = 10,
-              n.trees = 5000,
+              n.trees = 10000,
               shrinkage = 0.01,
               bag.fraction = 0.45,
               n.cores = 3)
@@ -435,13 +435,13 @@ newGBM
 summary(newGBM)
 
 #Make predictions for Test Set
-tstSet$prediction <- predict(newGBM, tstSet, n.tree = 5000)
+tstSet$prediction <- predict(newGBM, tstSet, n.tree = 10000)
 
 #Check for RMSE
 ModelMetrics::rmse(tstSet$rating, tstSet$prediction) ## Test/Train RMSE = 0.9071594
 
 #Make prediction for submission test set
-stuTest$rating <- predict(newGBM, stuTest, n.tree = 5000)
+stuTest$rating <- predict(newGBM, stuTest, n.tree = 10000)
 
 #======================== Create submission file ========================
 
